@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""Show the configured Hyprland shortcuts in a searchable Fuzzel menu."""
+
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+CONFIG = Path.home() / ".config/hypr/hyprland.conf"
+
+APPLICATION_BINDINGS = [
+    ("Ctrl + Mouse wheel up", "Alacritty: Zoom in"),
+    ("Ctrl + Mouse wheel down", "Alacritty: Zoom out"),
+    ("Ctrl + =", "Alacritty: Zoom in"),
+    ("Ctrl + +", "Alacritty: Zoom in"),
+    ("Ctrl + Numpad +", "Alacritty: Zoom in"),
+    ("Ctrl + -", "Alacritty: Zoom out"),
+    ("Ctrl + Numpad -", "Alacritty: Zoom out"),
+    ("Ctrl + 0", "Alacritty: Reset zoom"),
+]
+
+ACTION_NAMES = {
+    "exec": "Run",
+    "killactive": "Close active window",
+    "exit": "Exit Hyprland",
+    "settiled": "Toggle tiled mode",
+    "pseudo": "Toggle pseudo-tiling",
+    "layoutmsg": "Layout command",
+    "movefocus": "Focus window",
+    "movewindow": "Move window",
+    "moveactive": "Move floating window",
+    "resizeactive": "Resize active window",
+    "togglefloating": "Toggle floating mode",
+    "centerwindow": "Center floating window",
+    "fullscreen": "Toggle fullscreen",
+    "pin": "Pin floating window",
+    "workspace": "Switch workspace",
+    "movetoworkspace": "Move window to workspace",
+    "togglespecialworkspace": "Toggle special workspace",
+}
+
+DEFAULT_VARIABLES = {
+    "mainMod": "SUPER",
+    "terminal": "alacritty",
+    "fileManager": "dolphin",
+    "menu": "fuzzel --show drun",
+    "browser": "firefox",
+    "music": "spotify",
+}
+
+
+def expand(value: str, variables: dict[str, str]) -> str:
+    for name, replacement in variables.items():
+        value = value.replace(f"${name}", replacement)
+    return value.strip()
+
+
+def pretty_modifiers(modifiers: str) -> str:
+    names = {
+        "SUPER": "Super",
+        "SHIFT": "Shift",
+        "CTRL": "Ctrl",
+        "CONTROL": "Ctrl",
+        "ALT": "Alt",
+    }
+    return " + ".join(names.get(part.upper(), part.title()) for part in modifiers.split())
+
+
+def describe(dispatcher: str, argument: str, variables: dict[str, str]) -> str:
+    argument = expand(argument, variables)
+    if dispatcher == "exec":
+        command = argument.replace(str(Path.home()), "~")
+        friendly = {
+            "alacritty": "Open terminal",
+            "dolphin": "Open file manager",
+            "firefox": "Open browser",
+            "firefox --private-window": "Open Firefox private window",
+            'kitty --title "Remote Access Dashboard" ~/.local/bin/remote-access-dashboard': (
+                "Open live remote-access dashboard"
+            ),
+            "~/.local/bin/hypr-smart-fullscreen": "Cycle fullscreen layout",
+            "~/.local/bin/hypr-three-column-cycle": "Cycle three-column layout",
+            "~/.local/bin/hypr-quarter-cycle": "Cycle quarter-screen layout",
+            "~/.local/bin/hypr-keybinds": "Open Hyprland keybinds",
+        }.get(command)
+        return friendly or f"Run {command}"
+    label = ACTION_NAMES.get(dispatcher, dispatcher.replace("-", " ").title())
+    return f"{label}: {argument}" if argument else label
+
+
+def read_bindings(
+    config: Path,
+    variables: dict[str, str],
+    bindings: list[str],
+    visited: set[Path],
+) -> None:
+    config = config.expanduser().resolve()
+    if config in visited or not config.is_file():
+        return
+    visited.add(config)
+
+    for raw_line in config.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        variable = re.match(r"^\$([A-Za-z0-9_]+)\s*=\s*(.+)$", line)
+        if variable:
+            value = variable.group(2).split("#", 1)[0].strip()
+            variables[variable.group(1)] = expand(value, variables)
+            continue
+
+        source = re.match(r"^source\s*=\s*(.+)$", line)
+        if source:
+            source_path = expand(source.group(1).split("#", 1)[0], variables)
+            read_bindings(Path(source_path).expanduser(), variables, bindings, visited)
+            continue
+
+        match = re.match(r"^bind(?:e|l|m|el|le)?\s*=\s*(.*)$", line)
+        if not match:
+            continue
+        fields = [field.strip() for field in match.group(1).split(",", 3)]
+        if len(fields) < 3:
+            continue
+        modifiers, key, dispatcher = fields[:3]
+        argument = fields[3].split("#", 1)[0].strip().rstrip(",") if len(fields) == 4 else ""
+        modifiers = pretty_modifiers(expand(modifiers, variables))
+        key = expand(key, variables).replace("mouse_down", "Mouse wheel down").replace(
+            "mouse_up", "Mouse wheel up"
+        )
+        shortcut = " + ".join(part for part in (modifiers, key) if part)
+        bindings.append(
+            f"{shortcut:<34}  {describe(dispatcher, argument, variables)}"
+        )
+
+
+def main() -> None:
+    variables: dict[str, str] = dict(DEFAULT_VARIABLES)
+    bindings: list[str] = []
+    read_bindings(CONFIG, variables, bindings, set())
+
+    for shortcut, description in APPLICATION_BINDINGS:
+        bindings.append(f"{shortcut:<34}  {description}")
+
+    if "--print" in sys.argv[1:]:
+        print("\n".join(bindings))
+        return
+
+    subprocess.run(
+        [
+            "fuzzel",
+            "--dmenu",
+            "--prompt",
+            "Search keyboard shortcuts…",
+            "--width",
+            "72",
+            "--lines",
+            "16",
+        ],
+        input="\n".join(bindings),
+        text=True,
+        check=False,
+    )
+
+
+if __name__ == "__main__":
+    main()

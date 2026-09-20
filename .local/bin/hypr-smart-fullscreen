@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+active="$(hyprctl -j activewindow)"
+address="$(jq -r '.address // empty' <<<"$active")"
+workspace_id="$(jq -r '.workspace.id // empty' <<<"$active")"
+fullscreen="$(jq -r '.fullscreen // 0' <<<"$active")"
+
+[[ -n "$address" && -n "$workspace_id" ]] || exit 0
+
+# Leaving fullscreen should not disturb the workspace layout again.
+if (( fullscreen != 0 )); then
+    hyprctl dispatch fullscreen 1 >/dev/null
+    exit 0
+fi
+
+if [[ "$workspace_id" =~ ^[0-9]+$ ]]; then
+    target_workspace=$((workspace_id + 1))
+else
+    target_workspace="r+1"
+fi
+
+# Select by address, never by app class/title, so this works identically for
+# terminals, browsers, games, editors, and XWayland applications.
+mapfile -t other_windows < <(
+    hyprctl -j clients | jq -r \
+        --arg address "$address" \
+        --argjson workspace "$workspace_id" \
+        '.[] | select(.mapped and .workspace.id == $workspace and .address != $address) | .address'
+)
+
+for other_address in "${other_windows[@]}"; do
+    hyprctl dispatch movetoworkspacesilent \
+        "$target_workspace,address:$other_address" >/dev/null
+done
+
+hyprctl dispatch focuswindow "address:$address" >/dev/null
+# Mode 1 maximizes within the workspace's usable area, keeping Ax-Shell visible.
+hyprctl dispatch fullscreen 1 >/dev/null

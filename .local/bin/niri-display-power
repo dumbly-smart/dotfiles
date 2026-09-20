@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+    off) exec niri msg action power-off-monitors ;;
+    on) exec niri msg action power-on-monitors ;;
+    *) echo "usage: niri-display-power {on|off}" >&2; exit 2 ;;
+esac

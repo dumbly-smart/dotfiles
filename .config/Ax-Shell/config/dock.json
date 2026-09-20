@@ -1,0 +1,12 @@
+{
+    "pinned_apps": [
+        {
+            "name": "Antigravity",
+            "display_name": "Antigravity",
+            "window_class": "Antigravity",
+            "executable": "/usr/bin/antigravity",
+            "command_line": "/usr/bin/antigravity %U",
+            "icon_name": "antigravity"
+        }
+    ]
+}

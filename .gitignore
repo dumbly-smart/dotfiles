@@ -1,0 +1,23 @@
+# Runtime state and local machine data
+.config/**/graft/.cache/
+.config/**/graft/.graph/
+.config/**/__pycache__/
+.config/**/logs/
+.config/zsh/zhistory*
+.config/zsh/zcompdump*
+.config/*/session/
+
+# Credentials and secret material
+.env*
+.config/cli-top/
+.config/gh/
+.aws/
+.ssh/
+.gnupg/
+.kube/
+
+# Generated/binary caches
+*.zwc
+*.pyc
+*.pma
+*.lock

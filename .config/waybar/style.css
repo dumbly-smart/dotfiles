@@ -1,0 +1,33 @@
+@import url("colors.css");
+
+* {
+  border: none;
+  border-radius: 0;
+  font-family: "Iosevka Nerd Font";
+  font-size: 13px;
+  min-height: 0;
+}
+
+window#waybar {
+  background: transparent;
+  color: @fg;
+}
+
+#workspaces, #window, #clock, #network, #pulseaudio, #battery, #tray {
+  background: alpha(@bg, 0.94);
+  border: 1px solid alpha(@bright, 0.9);
+  border-radius: 10px;
+  margin: 0 3px;
+  padding: 0 10px;
+}
+
+#workspaces { padding: 0 5px; }
+#workspaces button { color: @muted; padding: 0 6px; }
+#workspaces button.active { color: @accent; }
+#workspaces button.urgent { color: @fg; background: @bright; }
+#window { color: @muted; }
+#clock { color: @fg; }
+#battery.warning { color: @fg; }
+#battery.critical { color: @accent; background: @bright; }
+#pulseaudio.muted, #network.disconnected { color: @muted; }
+#tray { padding-right: 7px; }

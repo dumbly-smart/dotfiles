@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+
+set -u
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/battery-saver"
+brightness_file="$state_dir/brightness"
+system_helper="/usr/local/libexec/battery-saver-system"
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "Battery Saver" "$1"
+    fi
+    printf '%s\n' "$1"
+}
+
+run_system_helper() {
+    if [[ ! -x "$system_helper" ]]; then
+        printf 'Warning: %s is not installed; skipping system-level tuning.\n' "$system_helper" >&2
+        return 0
+    fi
+
+    if sudo -n "$system_helper" "$1" 2>/dev/null; then
+        return 0
+    elif command -v pkexec >/dev/null 2>&1 && [[ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+        pkexec "$system_helper" "$1"
+    else
+        sudo "$system_helper" "$1"
+    fi
+}
+
+enable_live_mode() {
+    mkdir -p "$state_dir"
+
+    if [[ ! -s "$brightness_file" ]]; then
+        brightnessctl get > "$brightness_file"
+    fi
+
+    brightnessctl set 25%
+
+    if command -v hyprctl >/dev/null 2>&1; then
+        hyprctl --batch 'keyword monitor eDP-1,2560x1600@60,auto,auto ; keyword animations:enabled 0 ; keyword decoration:blur:enabled 0 ; keyword decoration:shadow:enabled 0 ; keyword misc:vfr 1' >/dev/null || \
+            printf 'Warning: Hyprland settings could not be applied from this session.\n' >&2
+    fi
+
+    run_system_helper on
+    notify "Enabled: 25% brightness, 60 Hz, reduced effects, CPU turbo off."
+}
+
+disable_live_mode() {
+    run_system_helper off
+
+    if [[ -s "$brightness_file" ]]; then
+        brightnessctl set "$(<"$brightness_file")"
+        rm -f "$brightness_file"
+    fi
+
+    if command -v hyprctl >/dev/null 2>&1; then
+        hyprctl reload >/dev/null || \
+            printf 'Warning: Hyprland could not be reloaded from this session.\n' >&2
+    fi
+
+    notify "Disabled and restored the saved brightness and normal Hyprland configuration."
+}
+
+show_status() {
+    local battery="/sys/class/power_supply/BAT1"
+    local mode="normal"
+    local status="unknown"
+    local energy_now=""
+    local energy_full=""
+    local power_now=""
+
+    if rg -q '(^| )battery_saver\.deep=1( |$)' /proc/cmdline; then
+        mode="deep"
+    elif [[ -s "$brightness_file" ]]; then
+        mode="live"
+    fi
+
+    [[ -r "$battery/status" ]] && status="$(<"$battery/status")"
+    [[ -r "$battery/energy_now" ]] && energy_now="$(<"$battery/energy_now")"
+    [[ -r "$battery/energy_full" ]] && energy_full="$(<"$battery/energy_full")"
+    [[ -r "$battery/power_now" ]] && power_now="$(<"$battery/power_now")"
+
+    format_runtime() {
+        local hours="$1"
+        awk -v hours="$hours" 'BEGIN {
+            minutes = int(hours * 60 + 0.5)
+            printf "%dh %02dm", int(minutes / 60), minutes % 60
+        }'
+    }
+
+    print_mode_projection() {
+        local label="$1"
+        local target_watts="$2"
+        local hours
+        hours="$(awk -v energy="$energy_now" -v watts="$target_watts" 'BEGIN { print energy / (watts * 1000000) }')"
+        printf '  %-12s %s remaining (%.0f W target)\n' "$label:" "$(format_runtime "$hours")" "$target_watts"
+    }
+
+    printf 'Battery mode: %s\n' "$mode"
+    printf 'Battery: '
+    if [[ -r "$battery/capacity" ]]; then
+        printf '%s%%, ' "$(<"$battery/capacity")"
+    fi
+    if [[ -n "$power_now" ]]; then
+        awk -v power="$power_now" -v status="$status" 'BEGIN {
+            description = status == "Discharging" ? "current draw" : "battery power rate"
+            printf "%.1f W %s (%s)\n", power / 1000000, description, status
+        }'
+    else
+        printf 'power draw unavailable\n'
+    fi
+
+    printf 'Projected battery life by mode:\n'
+    if [[ "$status" == "Discharging" && -n "$energy_now" && -n "$power_now" && "$power_now" -gt 0 ]]; then
+        # Each mode has its own hardware-specific average power target. This
+        # keeps projections stable instead of scaling the momentary workload.
+        print_mode_projection "Normal" "28"
+        print_mode_projection "Live saver" "20"
+        print_mode_projection "Deep saver" "15"
+        printf '  Projections use remaining battery energy and each mode target; workload still affects actual runtime.\n'
+        if [[ "$mode" != "deep" ]]; then
+            printf '  Deep saver is not active; its value is a projection, not a measurement.\n'
+        fi
+    else
+        printf '  Normal:      unavailable while %s\n' "${status,,}"
+        printf '  Live saver:  unavailable while %s\n' "${status,,}"
+        printf '  Deep saver:  unavailable while %s\n' "${status,,}"
+        if [[ "$status" == "Charging" && -n "$energy_now" && -n "$energy_full" && -n "$power_now" && "$power_now" -gt 0 ]]; then
+            local charge_hours
+            charge_hours="$(awk -v full="$energy_full" -v now="$energy_now" -v power="$power_now" 'BEGIN { print (full - now) / power }')"
+            printf 'Estimated time to full: %s\n' "$(format_runtime "$charge_hours")"
+        fi
+    fi
+    [[ -r /sys/firmware/acpi/platform_profile ]] && \
+        printf 'Platform profile: %s\n' "$(</sys/firmware/acpi/platform_profile)"
+    [[ -r /sys/devices/system/cpu/intel_pstate/no_turbo ]] && \
+        printf 'CPU turbo disabled: %s\n' "$(</sys/devices/system/cpu/intel_pstate/no_turbo)"
+    [[ -r /sys/bus/pci/devices/0000:01:00.0/power/runtime_status ]] && \
+        printf 'RTX 4060 runtime state: %s\n' "$(</sys/bus/pci/devices/0000:01:00.0/power/runtime_status)"
+}
+
+apply_deep_session() {
+    if ! rg -q '(^| )battery_saver\.deep=1( |$)' /proc/cmdline; then
+        exit 0
+    fi
+
+    mkdir -p "$state_dir"
+    [[ -s "$brightness_file" ]] || brightnessctl get > "$brightness_file"
+    brightnessctl set 25%
+    hyprctl --batch 'keyword monitor eDP-1,2560x1600@60,auto,auto ; keyword animations:enabled 0 ; keyword decoration:blur:enabled 0 ; keyword decoration:shadow:enabled 0 ; keyword misc:vfr 1' >/dev/null
+    notify "Deep Intel-only battery mode is active."
+}
+
+show_deep_instructions() {
+    printf 'Reboot, choose Singlebooter in Minegrub, then select:\n'
+    printf '  Arch Linux (Deep Battery Saver - Intel only)\n'
+}
+
+case "${1:-}" in
+    on) enable_live_mode ;;
+    off) disable_live_mode ;;
+    status) show_status ;;
+    deep) show_deep_instructions ;;
+    session) apply_deep_session ;;
+    *)
+        printf 'Usage: battery-saver {on|off|status|deep}\n' >&2
+        exit 2
+        ;;
+esac

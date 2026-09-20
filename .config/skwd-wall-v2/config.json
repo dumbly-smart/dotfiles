@@ -1,0 +1,57 @@
+{
+  "components": {
+    "wallpaperSelector": {
+      "displayMode": "slices",
+      "enabled": true
+    }
+  },
+  "filterBar": {
+    "last": {
+      "color": -1,
+      "favouritesOnly": false,
+      "folder": "*",
+      "kind": "",
+      "orient": "",
+      "resolution": "",
+      "showHiddenFolders": true,
+      "sort": "res"
+    },
+    "show": {
+      "colors": true,
+      "favourites": true,
+      "folder": true,
+      "random": true,
+      "resolution": true,
+      "sort": {
+        "color": true,
+        "date": true,
+        "name": true,
+        "random": true
+      },
+      "tag": true,
+      "theme": true,
+      "type": {
+        "image": true,
+        "video": true,
+        "we": true
+      }
+    },
+    "sticky": true,
+    "visualStyle": "slices"
+  },
+  "general": {
+    "filterBarAlwaysVisible": true,
+    "randomRotate": true,
+    "uiScale": 1.0
+  },
+  "launch": {
+    "animation": "zoom"
+  },
+  "transition": {
+    "enabled": false
+  },
+  "videoPreview": {
+    "delayMs": 350,
+    "enabled": true
+  }
+}

@@ -1,0 +1,361 @@
+#!/usr/bin/env python3
+"""Control native Bluetooth OBEX media sharing."""
+
+from __future__ import annotations
+
+import os
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import dbus
+import dbus.service
+from dbus.mainloop.glib import DBusGMainLoop
+from gi.repository import GLib
+
+INBOX = Path.home() / "Downloads/Bluetooth"
+STATE = Path.home() / ".local/state/bluetooth-media-share"
+PID_FILE = STATE / "obexd.pid"
+LOG_FILE = STATE / "obexd.log"
+OBEXD = "/usr/lib/bluetooth/obexd"
+AGENT_PATH = "/org/xtrmn8/BluetoothMediaAgent"
+
+HELP = f"""Bluetooth media sharing
+
+Commands:
+  media-share on             Receive files from nearby Bluetooth devices
+  media-share off            Stop receiving and hide the laptop
+  media-share status         Show whether receiving is on or off
+  media-share pair           Show phone pairing instructions
+  media-share paired         List paired phones and their addresses
+  media-share trust          Pick and authorize a paired phone
+  media-share send [FILES]   Send files to a paired phone
+  media-share inbox          Open the received-files folder
+  media-share help           Show all commands
+
+Received files: {INBOX}
+
+Phone → laptop:
+  1. Run: media-share on
+  2. Pair once using: media-share pair
+  3. On Android select files, tap Share, then Bluetooth.
+  4. Choose this laptop. Files arrive in the inbox above.
+  5. Run: media-share off
+
+Laptop → phone:
+  Run: media-share send photo.jpg video.mp4
+  Or run `media-share send` to choose files graphically.
+"""
+
+
+def command(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(args, text=True, capture_output=True, check=check)
+
+
+def bluetoothctl(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    result = command(["bluetoothctl", *args], check=False)
+    if check and result.returncode:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise SystemExit(message or "Bluetooth is unavailable")
+    return result
+
+
+def current_pid() -> int | None:
+    try:
+        pid = int(PID_FILE.read_text().strip())
+        os.kill(pid, 0)
+        return pid
+    except (FileNotFoundError, ValueError, ProcessLookupError):
+        return None
+
+
+def start() -> None:
+    if current_pid():
+        print(f"Bluetooth media sharing is already ON.\nInbox: {INBOX}")
+        return
+    INBOX.mkdir(parents=True, exist_ok=True)
+    STATE.mkdir(parents=True, exist_ok=True)
+    bluetoothctl("power", "on")
+    bluetoothctl("pairable", "on")
+    bluetoothctl("discoverable", "on")
+    # Avoid competing with a previously D-Bus-activated default obexd.
+    command(["systemctl", "--user", "stop", "obex.service"], check=False)
+    log = LOG_FILE.open("ab")
+    process = subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "_agent"],
+        stdin=subprocess.DEVNULL,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    log.close()
+    for _ in range(30):
+        if current_pid():
+            break
+        if process.poll() is not None:
+            break
+        time.sleep(0.1)
+    if not current_pid():
+        raise SystemExit(f"Bluetooth receiver failed to start. See {LOG_FILE}")
+    print("Bluetooth media sharing is ON.")
+    print("Authentication: only paired + trusted phones are accepted.")
+    print(f"Received files: {INBOX}")
+    print("On Android: select files → Share → Bluetooth → choose this laptop.")
+
+
+def stop() -> None:
+    pid = current_pid()
+    if pid:
+        os.kill(pid, 15)
+        for _ in range(20):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.1)
+    PID_FILE.unlink(missing_ok=True)
+    bluetoothctl("discoverable", "off", check=False)
+    bluetoothctl("pairable", "off", check=False)
+    print("Bluetooth media sharing is OFF.")
+    print("Bluetooth remains powered for headphones and other paired devices.")
+
+
+def status() -> None:
+    pid = current_pid()
+    print(f"Bluetooth media sharing is {'ON' if pid else 'OFF'}.")
+    print(f"Inbox: {INBOX}")
+
+
+def pair_help() -> None:
+    print("""Pair your Android phone
+
+1. Run: media-share on
+2. Open Android Settings → Connected devices → Pair new device.
+3. Select this laptop from the available devices.
+4. Confirm that the same pairing code appears on both devices.
+5. Accept the pairing prompt on the laptop.
+6. Run `media-share trust`, select the phone, and press Yes.
+
+After pairing, send from Android with:
+  Select photos/videos → Share → Bluetooth → choose this laptop
+
+Keep `media-share on` active until the transfer finishes.
+""")
+
+
+def paired_devices() -> list[tuple[str, str]]:
+    result = bluetoothctl("devices", "Paired", check=False)
+    devices = []
+    for line in result.stdout.splitlines():
+        parts = line.strip().split(maxsplit=2)
+        if len(parts) == 3 and parts[0] == "Device":
+            devices.append((parts[1], parts[2]))
+    return devices
+
+
+def choose_and_confirm_device(requested: str = "") -> tuple[str, str] | None:
+    devices = paired_devices()
+    if requested:
+        matches = [(address, name) for address, name in devices if address.upper() == requested.upper()]
+        if not matches:
+            raise SystemExit(f"{requested} is not a paired device.")
+        selected = matches[0]
+    elif not devices:
+        if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+            subprocess.run(["zenity", "--error", "--text=No paired Bluetooth devices found. Pair the phone first."])
+        raise SystemExit("No paired Bluetooth devices. Run: media-share pair")
+    elif len(devices) == 1:
+        selected = devices[0]
+    elif os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+        rows = [item for address, name in devices for item in (address, name)]
+        choice = subprocess.run(
+            [
+                "zenity", "--list", "--title=Choose trusted phone",
+                "--text=Select the phone allowed to send files",
+                "--column=Address", "--column=Device name", *rows,
+            ],
+            text=True, capture_output=True,
+        )
+        if choice.returncode:
+            return None
+        address = choice.stdout.strip()
+        selected = next(device for device in devices if device[0] == address)
+    else:
+        print("Paired Bluetooth devices:")
+        for number, (address, name) in enumerate(devices, 1):
+            print(f"  {number}. {name} ({address})")
+        try:
+            selected = devices[int(input("Choose a device number: ")) - 1]
+        except (ValueError, IndexError):
+            raise SystemExit("Invalid selection")
+
+    address, name = selected
+    prompt = f"Allow “{name}” ({address}) to send files to this laptop?"
+    if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+        accepted = subprocess.run(
+            ["zenity", "--question", "--title=Trust Bluetooth phone", f"--text={prompt}"]
+        ).returncode == 0
+    else:
+        accepted = input(f"{prompt} [y/N] ").strip().lower() in ("y", "yes")
+    return selected if accepted else None
+
+
+def trust(requested: str = "") -> None:
+    selected = choose_and_confirm_device(requested)
+    if not selected:
+        print("Trust cancelled. No permissions were changed.")
+        return
+    address, name = selected
+    result = bluetoothctl("trust", address, check=False)
+    if result.returncode or "succeeded" not in result.stdout.lower():
+        raise SystemExit(result.stderr.strip() or result.stdout.strip() or "Could not trust that device")
+    print(f"Trusted {name} ({address}). It may now send files while sharing is ON.")
+
+
+class Rejected(dbus.exceptions.DBusException):
+    _dbus_error_name = "org.bluez.obex.Error.Rejected"
+
+
+def trusted_device(address: str) -> bool:
+    manager = dbus.Interface(
+        dbus.SystemBus().get_object("org.bluez", "/"),
+        "org.freedesktop.DBus.ObjectManager",
+    )
+    for interfaces in manager.GetManagedObjects().values():
+        device = interfaces.get("org.bluez.Device1")
+        if (
+            device
+            and str(device.get("Address", "")).upper() == address.upper()
+            and bool(device.get("Paired"))
+            and bool(device.get("Trusted"))
+        ):
+            return True
+    return False
+
+
+class ObexAgent(dbus.service.Object):
+    def __init__(self, bus: dbus.SessionBus):
+        super().__init__(bus, AGENT_PATH)
+        self.bus = bus
+
+    @dbus.service.method("org.bluez.obex.Agent1", in_signature="", out_signature="")
+    def Release(self):
+        pass
+
+    @dbus.service.method("org.bluez.obex.Agent1", in_signature="o", out_signature="s")
+    def AuthorizePush(self, transfer):
+        properties = dbus.Interface(
+            self.bus.get_object("org.bluez.obex", transfer),
+            "org.freedesktop.DBus.Properties",
+        )
+        transfer_data = properties.GetAll("org.bluez.obex.Transfer1")
+        session_path = transfer_data["Session"]
+        session_properties = dbus.Interface(
+            self.bus.get_object("org.bluez.obex", session_path),
+            "org.freedesktop.DBus.Properties",
+        )
+        address = str(session_properties.Get("org.bluez.obex.Session1", "Destination"))
+        if not trusted_device(address):
+            print(f"REJECTED unauthenticated transfer from {address}", flush=True)
+            raise Rejected(f"{address} is not paired and trusted")
+        filename = Path(str(transfer_data.get("Filename", "received-file"))).name
+        destination = INBOX / filename
+        print(f"AUTHORIZED {address}: {filename}", flush=True)
+        return str(destination)
+
+    @dbus.service.method("org.bluez.obex.Agent1", in_signature="", out_signature="")
+    def Cancel(self):
+        pass
+
+
+def agent_main() -> None:
+    DBusGMainLoop(set_as_default=True)
+    bus = dbus.SessionBus()
+    obex = subprocess.Popen(
+        [OBEXD, f"--root={INBOX}"],
+        stdin=subprocess.DEVNULL,
+    )
+    try:
+        manager = None
+        for _ in range(30):
+            if obex.poll() is not None:
+                raise SystemExit("obexd exited before authorization agent registration")
+            try:
+                manager = dbus.Interface(
+                    bus.get_object("org.bluez.obex", "/org/bluez/obex"),
+                    "org.bluez.obex.AgentManager1",
+                )
+                break
+            except dbus.exceptions.DBusException:
+                time.sleep(0.1)
+        if manager is None:
+            raise SystemExit("OBEX agent manager did not appear")
+        agent = ObexAgent(bus)
+        manager.RegisterAgent(AGENT_PATH)
+        PID_FILE.write_text(f"{os.getpid()}\n")
+        loop = GLib.MainLoop()
+        signal.signal(signal.SIGTERM, lambda *_: loop.quit())
+        signal.signal(signal.SIGINT, lambda *_: loop.quit())
+        print("Authenticated OBEX receiver ready", flush=True)
+        loop.run()
+        manager.UnregisterAgent(AGENT_PATH)
+    finally:
+        PID_FILE.unlink(missing_ok=True)
+        obex.terminate()
+        try:
+            obex.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            obex.kill()
+
+
+def send(files: list[str]) -> None:
+    missing = [name for name in files if not Path(name).is_file()]
+    if missing:
+        raise SystemExit("File not found: " + ", ".join(missing))
+    bluetoothctl("power", "on")
+    subprocess.Popen(["bluetooth-sendto", *files], start_new_session=True)
+    print("Bluetooth send window opened. Choose the paired phone.")
+
+
+def open_inbox() -> None:
+    INBOX.mkdir(parents=True, exist_ok=True)
+    subprocess.Popen(["xdg-open", str(INBOX)], start_new_session=True)
+
+
+def main() -> None:
+    action = sys.argv[1] if len(sys.argv) > 1 else "help"
+    arguments = sys.argv[2:]
+    if action == "_agent":
+        agent_main()
+        return
+    if action in ("help", "-h", "--help"):
+        print(HELP)
+    elif action == "on":
+        start()
+    elif action == "off":
+        stop()
+    elif action == "status":
+        status()
+    elif action == "pair":
+        pair_help()
+    elif action == "paired":
+        result = bluetoothctl("devices", "Paired", check=False)
+        print(result.stdout.strip() or "No paired devices.")
+    elif action == "trust":
+        trust(arguments[0] if arguments else "")
+    elif action == "send":
+        send(arguments)
+    elif action == "inbox":
+        open_inbox()
+    else:
+        print(f"Unknown command: {action}\n\n{HELP}", file=sys.stderr)
+        raise SystemExit(2)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        raise SystemExit(130)

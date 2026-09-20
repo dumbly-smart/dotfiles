@@ -1,0 +1,204 @@
+// Native niri rice for xtrmn8.
+// Hyprland remains available as a separate fallback session.
+
+environment {
+    XCURSOR_SIZE "24"
+    QT_QPA_PLATFORMTHEME "qt6ct"
+    NIRI_DISABLE_SYSTEMD_INTEGRATION "0"
+}
+
+input {
+    keyboard {
+        xkb {
+            layout "us"
+        }
+    }
+
+    touchpad {
+        tap
+        natural-scroll
+        dwt
+    }
+
+    mouse {
+        accel-profile "flat"
+    }
+
+    focus-follows-mouse max-scroll-amount="0%"
+}
+
+layout {
+    gaps 10
+    center-focused-column "on-overflow"
+    always-center-single-column
+
+    preset-column-widths {
+        proportion 0.33333
+        proportion 0.5
+        proportion 0.66667
+    }
+
+    default-column-width { proportion 0.5; }
+
+    focus-ring {
+        off
+    }
+
+    border {
+        off
+    }
+
+    shadow {
+        on
+        softness 22
+        spread 4
+        offset x=0 y=5
+        color "#00000080"
+    }
+
+    struts {
+        top 4
+        bottom 4
+    }
+}
+
+gestures {
+    hot-corners {
+        off
+    }
+}
+
+animations {
+    slowdown 0.85
+}
+
+prefer-no-csd
+screenshot-path "~/screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png"
+
+spawn-at-startup "waybar"
+spawn-sh-at-startup "hypridle -c ~/.config/niri/hypridle.conf"
+spawn-sh-at-startup "systemctl --user start skwd-walld.service"
+spawn-sh-at-startup "skwd-helm watch --exec '/home/xtrmn8/.local/bin/niri-skwd-theme-hook %path%'"
+spawn-sh-at-startup "battery-saver session"
+spawn-sh-at-startup "wl-paste --type text --watch cliphist store"
+spawn-sh-at-startup "wl-paste --type image --watch cliphist store"
+
+// Native niri window rules.
+window-rule {
+    match app-id=r#"^org\.wezfurlong\.wezterm$"#
+    default-column-width {}
+}
+
+window-rule {
+    match app-id=r#"firefox$"# title="^Picture-in-Picture$"
+    open-floating true
+}
+
+layer-rule {
+    match namespace="^waybar$"
+    shadow {
+        on
+        softness 18
+        spread 3
+        offset x=0 y=4
+        color "#00000070"
+    }
+}
+
+layer-rule {
+    match namespace="^skwd-wall-vk$"
+    place-within-backdrop true
+}
+
+binds {
+    Super+Shift+Slash { show-hotkey-overlay; }
+
+    Super+Z { spawn "alacritty"; }
+    Super+E { spawn "dolphin"; }
+    Super+F { spawn "firefox"; }
+    Super+Shift+F { maximize-column; }
+    Super+D { spawn "fuzzel" "--show" "drun"; }
+    Super+B { spawn "alacritty" "--class" "bluetooth-tui" "--title" "Bluetooth" "--option" "colors.primary.background=\"#212121\"" "--option" "colors.primary.foreground=\"#eeeeee\"" "--option" "colors.normal.black=\"#212121\"" "--option" "colors.normal.red=\"#eeeeee\"" "--option" "colors.normal.green=\"#eeeeee\"" "--option" "colors.normal.yellow=\"#eeeeee\"" "--option" "colors.normal.blue=\"#eeeeee\"" "--option" "colors.normal.magenta=\"#eeeeee\"" "--option" "colors.normal.cyan=\"#eeeeee\"" "--option" "colors.normal.white=\"#eeeeee\"" "--option" "colors.bright.black=\"#212121\"" "--option" "colors.bright.red=\"#eeeeee\"" "--option" "colors.bright.green=\"#eeeeee\"" "--option" "colors.bright.yellow=\"#eeeeee\"" "--option" "colors.bright.blue=\"#eeeeee\"" "--option" "colors.bright.magenta=\"#eeeeee\"" "--option" "colors.bright.cyan=\"#eeeeee\"" "--option" "colors.bright.white=\"#eeeeee\"" "--command" "/home/xtrmn8/.cargo/bin/bluetui" "--config" "/home/xtrmn8/.config/bluetui/config.toml"; }
+    Super+X repeat=false { close-window; }
+    Super+M repeat=false { quit; }
+    Super+Space { toggle-window-floating; }
+    Super+Ctrl+F { fullscreen-window; }
+    Super+Ctrl+C { center-column; }
+    Super+Ctrl+Space { toggle-window-rule-opacity; }
+    Super+F1 { spawn "/home/xtrmn8/.local/bin/niri-keybinds"; }
+    Super+Shift+W { spawn "skwd-wall-v2"; }
+    Super+Shift+Y { spawn "skwd-wall-v2"; }
+    Print { spawn-sh "systemctl --user start niri-screenshot.service"; }
+
+    Super+Left { focus-column-left; }
+    Super+Right { focus-column-right; }
+    Super+Up { focus-window-up; }
+    Super+Down { focus-window-down; }
+
+    Super+Shift+Left { move-column-left; }
+    Super+Shift+Right { move-column-right; }
+    Super+Shift+Up { move-window-up; }
+    Super+Shift+Down { move-window-down; }
+
+    Super+R { switch-preset-column-width; }
+    Super+Ctrl+R { switch-preset-window-height; }
+    Super+W { spawn "alacritty" "--class" "wifitui" "--title" "Wi-Fi" "--command" "/home/xtrmn8/.local/bin/wifitui" "--theme=/home/xtrmn8/.config/wifitui/theme.toml"; }
+    Super+Q { consume-or-expel-window-right; }
+    Super+Tab { toggle-overview; }
+    Super+S { toggle-overview; }
+
+    Super+Page_Down { focus-workspace-down; }
+    Super+Page_Up { focus-workspace-up; }
+    Super+Ctrl+Page_Down { move-column-to-workspace-down; }
+    Super+Ctrl+Page_Up { move-column-to-workspace-up; }
+
+    Super+WheelScrollDown cooldown-ms=150 { focus-workspace-down; }
+    Super+WheelScrollUp cooldown-ms=150 { focus-workspace-up; }
+
+    Super+1 { focus-workspace 1; }
+    Super+2 { focus-workspace 2; }
+    Super+3 { focus-workspace 3; }
+    Super+4 { focus-workspace 4; }
+    Super+5 { focus-workspace 5; }
+    Super+6 { focus-workspace 6; }
+    Super+7 { focus-workspace 7; }
+    Super+8 { focus-workspace 8; }
+    Super+9 { focus-workspace 9; }
+    Super+0 { focus-workspace 10; }
+
+    Super+Shift+1 { move-column-to-workspace 1; }
+    Super+Shift+2 { move-column-to-workspace 2; }
+    Super+Shift+3 { move-column-to-workspace 3; }
+    Super+Shift+4 { move-column-to-workspace 4; }
+    Super+Shift+5 { move-column-to-workspace 5; }
+    Super+Shift+6 { move-column-to-workspace 6; }
+    Super+Shift+7 { move-column-to-workspace 7; }
+    Super+Shift+8 { move-column-to-workspace 8; }
+    Super+Shift+9 { move-column-to-workspace 9; }
+    Super+Shift+0 { move-column-to-workspace 10; }
+
+    Super+Alt+Left { focus-monitor-left; }
+    Super+Alt+Right { focus-monitor-right; }
+    Super+Alt+Up { focus-monitor-up; }
+    Super+Alt+Down { focus-monitor-down; }
+
+    Super+Ctrl+Up allow-when-locked=true { spawn "brightnessctl" "-e4" "-n2" "set" "5%+"; }
+    Super+Ctrl+Down allow-when-locked=true { spawn "brightnessctl" "-e4" "-n2" "set" "5%-"; }
+    XF86AudioRaiseVolume allow-when-locked=true { spawn-sh "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"; }
+    XF86AudioLowerVolume allow-when-locked=true { spawn-sh "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-"; }
+    XF86AudioMute allow-when-locked=true { spawn-sh "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"; }
+    XF86AudioMicMute allow-when-locked=true { spawn-sh "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"; }
+    XF86MonBrightnessUp allow-when-locked=true { spawn "brightnessctl" "-e4" "-n2" "set" "5%+"; }
+    XF86MonBrightnessDown allow-when-locked=true { spawn "brightnessctl" "-e4" "-n2" "set" "5%-"; }
+    XF86AudioNext allow-when-locked=true { spawn "playerctl" "next"; }
+    XF86AudioPause allow-when-locked=true { spawn "playerctl" "play-pause"; }
+    XF86AudioPlay allow-when-locked=true { spawn "playerctl" "play-pause"; }
+    XF86AudioPrev allow-when-locked=true { spawn "playerctl" "previous"; }
+
+    Super+Ctrl+P { spawn "battery-saver" "on"; }
+    Super+Ctrl+Shift+P { spawn "battery-saver" "off"; }
+    Super+G { spawn-sh "~/.config/Ax-Shell/scripts/gamemode.sh toggle"; }
+    Super+Ctrl+Shift+R { spawn-sh "kitty --title 'Remote Access Dashboard' ~/.local/bin/remote-access-dashboard"; }
+    Super+Shift+P { spawn "firefox" "--private-window"; }
+    Super+Alt+L { spawn "hyprlock"; }
+}

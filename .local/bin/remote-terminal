@@ -1,0 +1,12 @@
+#!/usr/bin/env zsh
+set -eu
+
+session_name=phone-terminal
+start_dir=${1:-$HOME}
+
+if [[ ! -d "$start_dir" ]]; then
+  print -u2 "remote-terminal: directory does not exist: $start_dir"
+  exit 1
+fi
+
+exec tmux new-session -A -s "$session_name" -c "$start_dir"

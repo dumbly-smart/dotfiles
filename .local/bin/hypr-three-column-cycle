@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+window="$(hyprctl -j activewindow)"
+address="$(jq -r '.address // empty' <<<"$window")"
+monitor_id="$(jq -r '.monitor' <<<"$window")"
+floating="$(jq -r '.floating' <<<"$window")"
+[[ -n "$address" ]] || exit 0
+monitor="$(hyprctl -j monitors | jq --argjson id "$monitor_id" '.[] | select(.id == $id)')"
+[[ -n "$monitor" ]] || exit 1
+
+read -r monitor_x monitor_y monitor_width monitor_height scale reserve_left reserve_top reserve_right reserve_bottom < <(
+    jq -r '[.x, .y, .width, .height, .scale, .reserved[0], .reserved[1], .reserved[2], .reserved[3]] | @tsv' <<<"$monitor"
+)
+
+usable_x=$((monitor_x + reserve_left))
+usable_y=$((monitor_y + reserve_top))
+logical_width="$(awk -v width="$monitor_width" -v scale="$scale" 'BEGIN { printf "%d", width / scale }')"
+logical_height="$(awk -v height="$monitor_height" -v scale="$scale" 'BEGIN { printf "%d", height / scale }')"
+usable_width=$((logical_width - reserve_left - reserve_right))
+usable_height=$((logical_height - reserve_top - reserve_bottom))
+side_width=$((usable_width / 5))
+center_width=$((usable_width - side_width * 2))
+center_x=$((usable_x + side_width))
+right_x=$((center_x + center_width))
+
+if [[ "$floating" != "true" ]]; then
+    position=left
+else
+    window_x="$(jq -r '.at[0]' <<<"$window")"
+    if ((window_x < center_x)); then
+        position=center
+    elif ((window_x < right_x)); then
+        position=right
+    else
+        position=left
+    fi
+fi
+
+case "$position" in
+    left)   target_x=$usable_x; width=$side_width ;;
+    center) target_x=$center_x; width=$center_width ;;
+    right)  target_x=$right_x; width=$side_width ;;
+esac
+
+hyprctl --batch "dispatch fullscreenstate 0 0; dispatch setfloating address:$address; dispatch resizewindowpixel exact $width $usable_height,address:$address; dispatch movewindowpixel exact $target_x $usable_y,address:$address; dispatch focuswindow address:$address" >/dev/null

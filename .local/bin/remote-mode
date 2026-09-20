@@ -1,0 +1,46 @@
+#!/usr/bin/env zsh
+set -eu
+
+state_dir="$HOME/.local/state/remote-mode"
+profile_file="$state_dir/previous-power-profile"
+
+display_off_service=remote-mode-display-off.service
+display_on_service=remote-mode-display-on.service
+if [[ -n "${NIRI_SOCKET:-}" ]]; then
+    display_off_service=niri-display-off.service
+    display_on_service=niri-display-on.service
+fi
+
+case "${1:-status}" in
+    on)
+        mkdir -p "$state_dir"
+        if [[ ! -f "$profile_file" ]]; then
+            powerprofilesctl get > "$profile_file"
+        fi
+        powerprofilesctl set power-saver
+        systemctl --user enable --now remote-access-awake.service
+        loginctl lock-sessions
+        systemctl --user start "$display_off_service"
+        print "Remote mode enabled"
+        ;;
+    off)
+        systemctl --user disable --now remote-access-awake.service
+        if [[ -s "$profile_file" ]]; then
+            powerprofilesctl set "$(<"$profile_file")"
+            rm -f "$profile_file"
+        else
+            powerprofilesctl set balanced
+        fi
+        systemctl --user start "$display_on_service"
+        print "Remote mode disabled"
+        ;;
+    status)
+        print "remote-mode: $(systemctl --user is-active remote-access-awake.service 2>/dev/null || true)"
+        print "power-profile: $(powerprofilesctl get)"
+        print "tailscale: $(tailscale status --self 2>/dev/null | head -n 1)"
+        ;;
+    *)
+        print -u2 "Usage: remote-mode {on|off|status}"
+        exit 2
+        ;;
+esac

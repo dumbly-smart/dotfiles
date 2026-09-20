@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+wallpaper="${1:-}"
+[[ -f "$wallpaper" ]] || exit 0
+
+current_wall="${HOME}/.current.wall"
+temporary_link="${current_wall}.tmp.$$"
+
+ln -s -- "$wallpaper" "$temporary_link"
+mv -Tf -- "$temporary_link" "$current_wall"
+
+matugen -c "${HOME}/.config/matugen/skwd-wall.toml" image "$wallpaper" >/dev/null

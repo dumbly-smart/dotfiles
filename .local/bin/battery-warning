@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+
+set -u
+
+threshold=20
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/battery-warning"
+warned_file="$state_dir/warned"
+warning_sound="/usr/share/sounds/ocean/stereo/alarm-clock-elapsed.oga"
+
+play_warning_sound() {
+    # A deliberate double alarm makes this distinguishable from normal alerts.
+    if command -v pw-play >/dev/null 2>&1 && [[ -r "$warning_sound" ]]; then
+        timeout 1s pw-play --volume=1.0 "$warning_sound" >/dev/null 2>&1 || true
+        sleep 0.2
+        timeout 1s pw-play --volume=1.0 "$warning_sound" >/dev/null 2>&1 || true
+    elif command -v canberra-gtk-play >/dev/null 2>&1; then
+        timeout 1s canberra-gtk-play --id=alarm-clock-elapsed \
+            --description="Critical battery alarm" >/dev/null 2>&1 || true
+    fi
+}
+
+send_warning() {
+    local percentage="$1"
+    notify-send \
+        --urgency=critical \
+        --expire-time=0 \
+        --app-name="Battery Monitor" \
+        --icon="battery-caution-symbolic" \
+        --category="device.battery.low" \
+        --hint="string:x-dunst-stack-tag:battery-low" \
+        "⚠ CRITICAL BATTERY — ${percentage}%" \
+        "Plug in your charger now. This alert stays visible until dismissed."
+}
+
+if [[ "${1:-}" == "test" ]]; then
+    send_warning "$threshold"
+    play_warning_sound
+    exit 0
+fi
+
+battery=""
+for candidate in /sys/class/power_supply/BAT*; do
+    if [[ -r "$candidate/capacity" && -r "$candidate/status" ]]; then
+        battery="$candidate"
+        break
+    fi
+done
+
+[[ -n "$battery" ]] || exit 0
+percentage="$(<"$battery/capacity")"
+status="$(<"$battery/status")"
+
+[[ "$percentage" =~ ^[0-9]+$ ]] || exit 0
+mkdir -p "$state_dir"
+
+# Re-arm after charging starts or the battery recovers above the threshold.
+if [[ "$status" != "Discharging" ]] || (( percentage > threshold )); then
+    rm -f "$warned_file"
+    exit 0
+fi
+
+if [[ ! -e "$warned_file" ]]; then
+    if send_warning "$percentage"; then
+        : > "$warned_file"
+        play_warning_sound
+    fi
+fi

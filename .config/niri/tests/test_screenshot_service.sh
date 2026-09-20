@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+niri_config="${HOME}/.config/niri/config.kdl"
+service="${HOME}/.config/systemd/user/niri-screenshot.service"
+helper="${HOME}/.local/bin/niri-screenshot"
+mako_config="${HOME}/.config/mako/config"
+mako_service="${HOME}/.config/systemd/user/mako.service"
+
+test -x "$helper"
+test -f "$service"
+test -x "$(command -v mako)"
+test -f "$mako_config"
+test -f "$mako_service"
+grep -q '^background-color=#131313f2$' "$mako_config"
+grep -q '^anchor=top-right$' "$mako_config"
+grep -q 'Description=Mako notification daemon' "$mako_service"
+grep -q 'ExecStart=/usr/bin/mako' "$mako_service"
+grep -q 'Restart=on-failure' "$mako_service"
+! grep -q 'spawn-at-startup "mako"' "$niri_config"
+timeout 4s "$HOME/.local/bin/battery-warning" test >/dev/null 2>&1
+grep -q 'Description=Interactive Niri screenshot service' "$service"
+grep -q 'ExecStart=%h/.local/bin/niri-screenshot' "$service"
+grep -q 'focused screen' "$helper"
+grep -q 'focused window' "$helper"
+grep -q 'selected region' "$helper"
+grep -q 'SCREENSHOT_DIR=.*screenshots' "$helper"
+grep -q 'do-screen-transition' "$helper"
+grep -q 'timeout 1s notify-send' "$helper"
+grep -q 'Print { spawn-sh "systemctl --user start niri-screenshot.service"; }' "$niri_config"

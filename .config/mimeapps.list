@@ -1,0 +1,34 @@
+[Added Associations]
+application/pdf=firefox-4.desktop;firefox-3.desktop;firefox-2.desktop;
+application/x-extension-htm=firefox.desktop;
+application/x-extension-html=firefox.desktop;
+application/x-extension-shtml=firefox.desktop;
+application/x-extension-xht=firefox.desktop;
+application/x-extension-xhtml=firefox.desktop;
+application/xhtml+xml=firefox.desktop;
+image/png=eog.desktop;
+text/html=firefox.desktop;
+text/plain=firefox-5.desktop;
+x-scheme-handler/chrome=firefox.desktop;
+x-scheme-handler/http=firefox.desktop;
+x-scheme-handler/https=firefox.desktop;
+
+[Default Applications]
+application/pdf=firefox-4.desktop;
+application/x-extension-burp=install4j_bantny-BurpSuiteCommunity.desktop
+application/x-extension-htm=firefox.desktop
+application/x-extension-html=firefox.desktop
+application/x-extension-shtml=firefox.desktop
+application/x-extension-xht=firefox.desktop
+application/x-extension-xhtml=firefox.desktop
+application/xhtml+xml=firefox.desktop
+image/png=eog.desktop;
+text/html=firefox.desktop
+text/plain=firefox-5.desktop;
+x-scheme-handler/chrome=firefox.desktop
+x-scheme-handler/http=firefox.desktop
+x-scheme-handler/https=firefox.desktop
+x-scheme-handler/burp=install4j_bantny-BurpSuiteCommunity.desktop
+x-scheme-handler/discord-825970691177578516=discord-825970691177578516.desktop
+x-scheme-handler/antigravity=antigravity.desktop
+x-scheme-handler/omniget=omniget-handler.desktop

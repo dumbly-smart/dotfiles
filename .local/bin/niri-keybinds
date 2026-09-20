@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Show the configured native niri shortcuts in a searchable Fuzzel menu."""
+
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+CONFIG = Path.home() / ".config/niri/config.kdl"
+
+ACTION_NAMES = {
+    "close-window": "Close active window",
+    "quit": "Exit niri",
+    "toggle-window-floating": "Toggle floating mode",
+    "fullscreen-window": "Toggle fullscreen",
+    "maximize-column": "Maximize column",
+    "center-column": "Center column",
+    "toggle-window-rule-opacity": "Toggle window opacity",
+    "focus-column-left": "Focus column left",
+    "focus-column-right": "Focus column right",
+    "focus-window-up": "Focus window above",
+    "focus-window-down": "Focus window below",
+    "move-column-left": "Move column left",
+    "move-column-right": "Move column right",
+    "move-window-up": "Move window above",
+    "move-window-down": "Move window below",
+    "switch-preset-column-width": "Cycle column width",
+    "switch-preset-window-height": "Cycle window height",
+    "consume-or-expel-window-left": "Consume/expel window left",
+    "consume-or-expel-window-right": "Consume/expel window right",
+    "toggle-overview": "Toggle niri overview",
+    "focus-workspace": "Focus workspace",
+    "move-column-to-workspace": "Move column to workspace",
+    "focus-workspace-up": "Focus workspace above",
+    "focus-workspace-down": "Focus workspace below",
+    "move-column-to-workspace-up": "Move column to workspace above",
+    "move-column-to-workspace-down": "Move column to workspace below",
+    "focus-monitor-left": "Focus monitor left",
+    "focus-monitor-right": "Focus monitor right",
+    "focus-monitor-up": "Focus monitor above",
+    "focus-monitor-down": "Focus monitor below",
+}
+
+
+# Common controls for the installed terminal applications. These are shown
+# alongside the generated Niri shortcuts so the same searchable popup works
+# as a quick TUI reference.
+TUI_KEYBINDS = [
+    ("btop", "q quit · arrows/tab navigate · h help"),
+    ("htop", "F10 quit · arrows navigate · F6 sort · F9 kill"),
+    ("bandwhich", "q quit · arrows/tab navigate · s sort"),
+    ("gping", "q quit · arrows navigate · +/- zoom"),
+    ("cava", "q/Esc quit · visualizer; configure in ~/.config/cava"),
+    ("lazygit", "q quit · arrows navigate · ? help · space stage · c commit"),
+    ("lazydocker", "q quit · arrows navigate · enter select · ? help"),
+    ("yazi", "q quit · arrows navigate · enter open · space select · y yank"),
+    ("k9s", ": command mode · / filter · enter select · ? help · ctrl+c quit"),
+    ("rainfrog", "q quit · arrows/tab navigate · enter select · ? help"),
+    ("rmpc", "q quit · arrows navigate · enter play · space pause · ? help"),
+    ("ncspot", "q quit · arrows navigate · enter play · space pause · ? help"),
+    ("helix", "i insert · esc normal · : commands · space leader · :q quit"),
+    ("zellij", "Ctrl+p pane · Ctrl+n resize · Ctrl+t tab · Ctrl+o session · Ctrl+q quit"),
+    ("chafa", "q/Esc quit · arrows navigate images when viewing a directory"),
+    ("astroterm", "q quit · arrows/time controls depend on view"),
+    ("gitlogue", "q/Esc quit · space pause · arrows/seek through replay"),
+    ("bluetui", "q quit · arrows navigate · enter select · ? help"),
+    ("wifitui", "q quit · arrows navigate · enter select · ? help"),
+]
+
+
+def describe(action: str) -> str:
+    command = action.strip().split(None, 1)
+    name = command[0] if command else "unknown"
+    argument = command[1] if len(command) == 2 else ""
+    if name == "spawn":
+        friendly = {
+            '"alacritty"': "Open terminal",
+            '"dolphin"': "Open file manager",
+            '"firefox"': "Open browser",
+            '"fuzzel" "--show" "drun"': "Open application launcher",
+            '"hyprlock"': "Lock screen",
+        }.get(argument)
+        return friendly or f"Run {argument}".replace('"', "")
+    if name == "spawn-sh":
+        return f"Run shell command: {argument.strip(chr(34))}"
+    label = ACTION_NAMES.get(name, name.replace("-", " ").title())
+    return f"{label}: {argument}" if argument else label
+
+
+def read_bindings() -> list[str]:
+    bindings: list[str] = []
+    inside_binds = False
+    for raw_line in CONFIG.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if line == "binds {":
+            inside_binds = True
+            continue
+        if inside_binds and line == "}":
+            break
+        if not inside_binds or not line or line.startswith("//"):
+            continue
+        match = re.match(r"^(.+?)\s*\{\s*(.+?)\s*\}\s*$", line)
+        if not match:
+            continue
+        key_and_options, action = match.groups()
+        action = action.rstrip(";").strip()
+        options = re.sub(r"\s+(?:repeat|cooldown-ms|allow-when-locked|hotkey-overlay-title)(?:=|\s+)(?:\"[^\"]*\"|[^\s]+)", "", key_and_options)
+        shortcut = " + ".join(part for part in options.split("+") if part)
+        bindings.append(f"{shortcut:<42}  {describe(action)}")
+    return bindings
+
+
+def tui_bindings() -> list[str]:
+    return [
+        f"TUI  {name:<14}  {keys}"
+        for name, keys in TUI_KEYBINDS
+    ]
+
+
+def main() -> None:
+    bindings = read_bindings()
+    bindings.extend(["", "── Installed TUI keybinds ──", *tui_bindings()])
+    if "--print" in sys.argv[1:]:
+        print("\n".join(bindings))
+        return
+    subprocess.run(
+        [
+            "fuzzel", "--dmenu", "--prompt", "Search niri shortcuts…",
+            "--width", "72", "--lines", "16",
+        ],
+        input="\n".join(bindings), text=True, check=False,
+    )
+
+
+if __name__ == "__main__":
+    main()

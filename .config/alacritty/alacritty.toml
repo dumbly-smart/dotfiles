@@ -1,0 +1,9 @@
+[[mouse.bindings]]
+mouse = "WheelUp"
+mods = "Control"
+action = "IncreaseFontSize"
+
+[[mouse.bindings]]
+mouse = "WheelDown"
+mods = "Control"
+action = "DecreaseFontSize"

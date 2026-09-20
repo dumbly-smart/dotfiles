@@ -1,0 +1,96 @@
+#!/usr/bin/env zsh
+set -u
+
+autoload -U colors && colors
+
+phone_ip="100.109.204.93"
+laptop_ip="100.123.246.40"
+session_name="phone-terminal"
+
+state_badge() {
+    case "$1" in
+        active|connected|online|yes)
+            print -n -- "%F{green}● $1%f"
+            ;;
+        inactive|disconnected|offline|no)
+            print -n -- "%F{yellow}○ $1%f"
+            ;;
+        *)
+            print -n -- "%F{cyan}$1%f"
+            ;;
+    esac
+}
+
+service_state() {
+    local state
+    state="$(systemctl --user is-active "$1" 2>/dev/null || true)"
+    print -- "${state:-inactive}"
+}
+
+while true; do
+    remote_state="$(service_state remote-access-awake.service)"
+    mirror_state="$(service_state terminal-mirror.service)"
+    power_profile="$(powerprofilesctl get 2>/dev/null || print unknown)"
+    tailscale_self="$(tailscale status --self 2>/dev/null | head -n 1)"
+    tailscale_all="$(tailscale status 2>/dev/null)"
+    phone_line="$(print -r -- "$tailscale_all" | awk -v ip="$phone_ip" '$1 == ip {print; exit}')"
+    laptop_line="$(print -r -- "$tailscale_all" | awk -v ip="$laptop_ip" '$1 == ip {print; exit}')"
+    phone_state=offline
+    [[ -n "$phone_line" && "$phone_line" != *offline* ]] && phone_state=online
+    inhibitor=no
+    systemd-inhibit --list 2>/dev/null | grep -q RemoteAccess && inhibitor=yes
+    session_state=inactive
+    tmux has-session -t "$session_name" 2>/dev/null && session_state=active
+    clients="$(tmux list-clients -t "$session_name" \
+        -F '  • #{client_tty}  #{client_width}x#{client_height}  attached #{t:client_created}' \
+        2>/dev/null)"
+    [[ -n "$clients" ]] || clients="  • No phone/laptop terminal clients"
+    ssh_gate="$(grep -F "$phone_ip" "$HOME/.zshenv" 2>/dev/null | head -n 1)"
+    gate_state=no
+    [[ -n "$ssh_gate" ]] && gate_state=yes
+    uptime_text="$(uptime -p 2>/dev/null || print unknown)"
+    battery="$(cat /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -n 1)"
+    battery_status="$(cat /sys/class/power_supply/BAT*/status 2>/dev/null | head -n 1)"
+    [[ -n "$battery" ]] || battery="?"
+    [[ -n "$battery_status" ]] || battery_status="unknown"
+
+    clear
+    print -P "%B%F{cyan}╭──────────────────────────────────────────────────────────────────────╮%f%b"
+    print -P "%B%F{cyan}│                 REMOTE ACCESS CONTROL CENTER                         │%f%b"
+    print -P "%B%F{cyan}╰──────────────────────────────────────────────────────────────────────╯%f%b"
+    print
+    print -P "%B SYSTEM & POWER%b"
+    print -P "  Remote mode       $(state_badge "$remote_state")"
+    print -P "  Sleep inhibitor   $(state_badge "$inhibitor")"
+    print -P "  Power profile     %F{magenta}$power_profile%f"
+    print -P "  Battery           %F{magenta}${battery}%% ($battery_status)%f"
+    print -P "  Uptime            %F{cyan}$uptime_text%f"
+    print
+    print -P "%B ENCRYPTED NETWORK%b"
+    print -P "  Laptop            $(state_badge "$([[ -n "$laptop_line" ]] && print online || print offline)")"
+    print -P "  Laptop address    %F{cyan}$laptop_ip%f"
+    print -P "  Pixel             $(state_badge "$phone_state")"
+    print -P "  Pixel address     %F{cyan}$phone_ip%f"
+    print -P "  Transport         %F{green}Tailscale / WireGuard + Tailscale SSH%f"
+    print
+    print -P "%B ACCESS POLICY%b"
+    print -P "  Pixel-only gate   $(state_badge "$gate_state")"
+    print -P "  Allowed source    %F{cyan}$phone_ip%f"
+    print -P "  Login user        %F{cyan}xtrmn8%f"
+    print -P "  Administration    %F{yellow}sudo password still required%f"
+    print
+    print -P "%B LIVE TERMINAL%b"
+    print -P "  Shared session    $(state_badge "$session_state")  %F{cyan}$session_name%f"
+    print -P "  Laptop mirror     $(state_badge "$mirror_state")"
+    print -r -- "$clients"
+    print
+    print -P "%B DEVICE DETAILS%b"
+    print -P "  Laptop peer       %F{242}${laptop_line:-not present in tailnet}%f"
+    print -P "  Phone peer        %F{242}${phone_line:-not present in tailnet}%f"
+    print
+    print -P "%F{242}Refreshes every 2 seconds · q/Esc close · r refresh now%f"
+
+    key=""
+    read -r -k 1 -t 2 key 2>/dev/null || true
+    [[ "$key" == "q" || "$key" == $'\e' ]] && break
+done

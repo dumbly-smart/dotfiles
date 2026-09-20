@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCREENSHOT_DIR="${HOME}/screenshots"
+mkdir -p "$SCREENSHOT_DIR"
+
+timestamp() {
+    date '+%Y-%m-%d_%H-%M-%S'
+}
+
+notify_saved() {
+    timeout 1s notify-send -a "Niri screenshot" "Screenshot saved" "$1" >/dev/null 2>&1 || true
+}
+
+signal_capture() {
+    niri msg action do-screen-transition --delay-ms 100 >/dev/null 2>&1 || true
+}
+
+choice="$(printf '%s\n' \
+    'focused screen/workspace' \
+    'focused window/app' \
+    'selected region' \
+    | fuzzel --dmenu --prompt 'Screenshot  ›  ' --width 42 --lines 3)"
+
+case "$choice" in
+    'focused screen/workspace')
+        niri msg action screenshot-screen
+        signal_capture
+        notify_saved "Saved in ${SCREENSHOT_DIR}"
+        ;;
+    'focused window/app')
+        niri msg action screenshot-window
+        signal_capture
+        notify_saved "Saved in ${SCREENSHOT_DIR}"
+        ;;
+    'selected region')
+        output="${SCREENSHOT_DIR}/Screenshot_$(timestamp).png"
+        temporary="$(mktemp --suffix=.png)"
+        trap 'rm -f "$temporary"' EXIT
+
+        geometry="$(slurp -d)"
+        grim -g "$geometry" "$temporary"
+        swappy -f "$temporary" -o "$output"
+
+        if [ -s "$output" ]; then
+            wl-copy < "$output"
+            signal_capture
+            notify_saved "$output"
+        fi
+        ;;
+esac

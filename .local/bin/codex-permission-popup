@@ -1,0 +1,24 @@
+#!/bin/sh
+
+# Codex PermissionRequest hooks receive one JSON object on stdin.
+payload=$(cat)
+
+cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty' 2>/dev/null)
+tool=$(printf '%s' "$payload" | jq -r '.tool_name // .tool // "a tool"' 2>/dev/null)
+
+if [ -n "$cwd" ]; then
+    workspace=${cwd##*/}
+    message="Codex wants to run ${tool} in ${workspace}."
+else
+    message="Codex is waiting for permission to run ${tool}."
+fi
+
+notify-send \
+    --app-name="Codex" \
+    --urgency=critical \
+    --expire-time=0 \
+    --icon=dialog-warning-symbolic \
+    "Codex needs permission" \
+    "$message"
+
+exit 0

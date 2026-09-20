@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+window="$(hyprctl -j activewindow)"
+address="$(jq -r '.address // empty' <<<"$window")"
+monitor_id="$(jq -r '.monitor' <<<"$window")"
+floating="$(jq -r '.floating' <<<"$window")"
+[[ -n "$address" ]] || exit 0
+monitor="$(hyprctl -j monitors | jq --argjson id "$monitor_id" '.[] | select(.id == $id)')"
+[[ -n "$monitor" ]] || exit 1
+
+read -r monitor_x monitor_y monitor_width monitor_height scale reserve_left reserve_top reserve_right reserve_bottom < <(
+    jq -r '[.x, .y, .width, .height, .scale, .reserved[0], .reserved[1], .reserved[2], .reserved[3]] | @tsv' <<<"$monitor"
+)
+
+usable_x=$((monitor_x + reserve_left))
+usable_y=$((monitor_y + reserve_top))
+logical_width="$(awk -v width="$monitor_width" -v scale="$scale" 'BEGIN { printf "%d", width / scale }')"
+logical_height="$(awk -v height="$monitor_height" -v scale="$scale" 'BEGIN { printf "%d", height / scale }')"
+usable_width=$((logical_width - reserve_left - reserve_right))
+usable_height=$((logical_height - reserve_top - reserve_bottom))
+quarter_width=$((usable_width / 2))
+quarter_height=$((usable_height / 2))
+right_x=$((usable_x + usable_width - quarter_width))
+bottom_y=$((usable_y + usable_height - quarter_height))
+
+if [[ "$floating" != "true" ]]; then
+    next_corner=0
+else
+    read -r window_x window_y < <(jq -r '.at | @tsv' <<<"$window")
+    horizontal=$((window_x < usable_x + usable_width / 2 ? 0 : 1))
+    vertical=$((window_y < usable_y + usable_height / 2 ? 0 : 1))
+    case "$vertical:$horizontal" in
+        0:0) next_corner=1 ;;
+        0:1) next_corner=2 ;;
+        1:1) next_corner=3 ;;
+        *)   next_corner=0 ;;
+    esac
+fi
+
+case "$next_corner" in
+    0) target_x=$usable_x; target_y=$usable_y ;;
+    1) target_x=$right_x;  target_y=$usable_y ;;
+    2) target_x=$right_x;  target_y=$bottom_y ;;
+    3) target_x=$usable_x; target_y=$bottom_y ;;
+esac
+
+hyprctl --batch "dispatch fullscreenstate 0 0; dispatch setfloating address:$address; dispatch resizewindowpixel exact $quarter_width $quarter_height,address:$address; dispatch movewindowpixel exact $target_x $target_y,address:$address; dispatch focuswindow address:$address" >/dev/null
